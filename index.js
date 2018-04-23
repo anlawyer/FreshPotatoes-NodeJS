@@ -66,10 +66,17 @@ function getFilmRecommendations (req, res, next) {
     FROM films
     WHERE id = ?`;
 
+    // db.allDocs({include_docs: true}).then(function (result) {
+    //   return Promise.all(result.rows.map(function (row) {
+    //     return db.remove(row.doc);
+    //   }));
+    // }).then(function (arrayOfResults) {
+    //   // All docs have really been removed() now!
+    // });
+
     sqlite.all(query, filmID)
       .then(function (response) {
         let filmObj = response[0];
-        // console.log(filmObj);
         let genreID = filmObj.genreID;
         let upperYear = filmObj.upperYear;
         let lowerYear = filmObj.lowerYear;
@@ -79,36 +86,43 @@ function getFilmRecommendations (req, res, next) {
           .then(function (response) {
             // response is an array of all the films that match the query
             let filmsArray = response;
-            // happens once for each film in the array
+            // return Promise.all(response.
             for (let i = 0; i < filmsArray.length; i++) {
-              // each id from the films that match the query above
               let filmID = filmsArray[i].id;
-              // call API for each film
+              // call API for each film to find all reviews for each film
               rp.get(thirdPartyURL + filmID,
                 function (error, response, body) {
                   if (error) throw error;
-                  // gets array of reviews out of response array of the specific film
                   let matchedFilm = JSON.parse(body)[0];
-                  // set total to 0, for specific film (to use for average calculation)
+                  // total will be used to calculate average rating
                   let total = 0;
-                  // console.log(matchedFilm);
-                  // if number of reviews for this film is greater than 5
                   if (matchedFilm.reviews.length >= 5) {
-                    // look at each review for the film
                     matchedFilm.reviews.forEach(function (review) {
-                      // add each rating to the total
                       total += review.rating;
                     });
-                    // take the newly computed total, and divide by the total number of reviews to get average
-                    let average = total / matchedFilm.reviews.length;
-                    // if the average is greater than 4.0, push the whole review object to the array
-                    if (average > 4.0) {
-                      filmRecommendationObj.recommendations.push(matchedFilm.film_id);
-                      console.log(filmRecommendationObj);
+                    // take the summed total, and divide by the total number of reviews to get average
+                    let averageRating = total / matchedFilm.reviews.length;
+                    // if the average is greater than 4.0, push ID to an array for querying later
+                    if (averageRating > 4.0) {
+                      let partialObj = {
+                        id: matchedFilm.film_id,
+                        averageRating: averageRating,
+                        reviews: matchedFilm.reviews.length
+                      };
+                      filmRecommendationObj.recommendations.push(partialObj);
+                      // {
+                      //    "id": 109,
+                      //    "title": "Reservoir Dogs",
+                      //    "releaseDate": "09-02-1992",
+                      //    "genre": "Action",
+                      //    "averageRating": 4.2,
+                      //    "reviews": 202
+                      //  }
                     }
                   }
                 });
             }
+            return filmRecommendationObj.recommendations;
           })
           .then(res.status(200).send(filmRecommendationObj));
       });
