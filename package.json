@@ -19,6 +19,7 @@
   "dependencies": {
     "express": "^4.14.0",
     "request": "^2.79.0",
+    "request-promise": "^4.2.2",
     "sequelize": "^3.29.0",
     "sqlite": "^2.2.3"
   },

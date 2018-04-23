@@ -1,6 +1,7 @@
 const sqlite = require('sqlite');
 // const Sequelize = require('sequelize');
 const request = require('request');
+// const rp = require('request-promise');
 const express = require('express');
 const app = express();
 
@@ -9,7 +10,7 @@ const {PORT = 3000, NODE_ENV = 'development', DB_PATH = './db/database.db'} = pr
 // ROUTE HANDLER
 function getAllFilms (req, res, next) {
   try {
-    let query = 'SELECT * FROM films';
+    const query = 'SELECT * FROM films';
     sqlite.all(query)
       .then(function (response) {
         res.status(200).send(response);
@@ -20,11 +21,14 @@ function getAllFilms (req, res, next) {
 }
 
 function getFilmRecommendations (req, res, next) {
+  let filmID = req.params.id;
+  // check if ID is in the DB, if not, return 422 error
+
   try {
-    let filmID = req.params.id;
-    let limitNum = req.query.limit;
+    // let limitNum = req.query.limit;
+    // make sure returned array takes into account the limit and offset
     const thirdPartyURL = 'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1?films=';
-    let query =
+    const query =
     `SELECT id
     ,genre_id AS genreID
     ,release_date AS releaseDate
@@ -33,47 +37,54 @@ function getFilmRecommendations (req, res, next) {
     FROM films
     WHERE id = ?`;
 
+    let filmRecommendationArray = [];
     sqlite.all(query, filmID)
       .then(function (response) {
         let filmObj = response[0];
-        console.log(filmObj);
+        // console.log(filmObj);
         let genreID = filmObj.genreID;
         let upperYear = filmObj.upperYear;
         let lowerYear = filmObj.lowerYear;
+        // query for all films that have same genre and were releaseed +-15 yrs of queried film
         sqlite.all(`SELECT * FROM films WHERE genre_id = ? AND release_date BETWEEN ? AND ?`,
           [genreID, lowerYear, upperYear])
           .then(function (response) {
-            let filmArray = response;
-            let filmReviewsArray = [];
-            // happens once for each film that matches the query
-            for (let i = 0; i < filmArray.length; i++) {
+            // response is an array of all the films that match the query
+            let filmsArray = response;
+            // happens once for each film in the array
+            for (let i = 0; i < filmsArray.length; i++) {
               // each id from the films that match the query above
-              let filmID = filmArray[i].id;
+              let filmID = filmsArray[i].id;
               // call API for each film
               request.get(thirdPartyURL + filmID,
                 function (error, response, body) {
                   if (error) throw error;
-                  // gets reviews for the specific film
-                  let filmReviews = JSON.parse(body)[0].reviews;
-                  // set total to 0, for each film
+                  // gets array of reviews out of response array of the specific film
+                  let matchedFilm = JSON.parse(body)[0];
+                  // set total to 0, for specific film (to use for average calculation)
                   let total = 0;
-                  // if number of reviews for said film is greater than 5
-                  if (filmReviews.length >= 5) {
-                    // ===== look at each review for the film =====
-                    filmReviews.forEach(function (review) {
+                  // console.log(matchedFilm);
+                  // if number of reviews for this film is greater than 5
+                  if (matchedFilm.reviews.length >= 5) {
+                    // look at each review for the film
+                    matchedFilm.reviews.forEach(function (review) {
                       // add each rating to the total
                       total += review.rating;
-                      console.log('review rating', review.rating);
                     });
                     // take the newly computed total, and divide by the total number of reviews to get average
-                    console.log('average of reviews', total/filmReviews.length);
+                    let average = total / matchedFilm.reviews.length;
                     // if the average is greater than 4.0, push the whole review object to the array
-                    // filmReviewsArray.push(filmReviews);
+                    if (average > 3.0) {
+                      filmRecommendationArray.push(matchedFilm.film_id);
+                    }
                   }
-                })
+                });
             }
           })
-      })
+          .then(res.status(200).send(filmRecommendationArray));
+        // return recommendation array
+        // add meta key, with limit and offset keys (from req.query)
+      });
   } catch (err) {
     next(err);
   }
@@ -82,6 +93,7 @@ function getFilmRecommendations (req, res, next) {
 // ROUTES
 app.get('/films', getAllFilms);
 app.get('/films/:id/recommendations', getFilmRecommendations);
+// return 404 error if route DNE
 
 // START SERVER
 Promise.resolve()
