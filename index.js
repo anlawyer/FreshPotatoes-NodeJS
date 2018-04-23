@@ -1,7 +1,7 @@
 const sqlite = require('sqlite');
 // const Sequelize = require('sequelize');
-const request = require('request');
-// const rp = require('request-promise');
+// const request = require('request');
+const rp = require('request-promise');
 const express = require('express');
 const app = express();
 
@@ -37,7 +37,13 @@ function getFilmRecommendations (req, res, next) {
     FROM films
     WHERE id = ?`;
 
-    let filmRecommendationArray = [];
+    let filmRecommendationObj = {
+      recommendations: [],
+      meta: {
+        limit: 10,
+        offset: 0
+      }
+    };
     sqlite.all(query, filmID)
       .then(function (response) {
         let filmObj = response[0];
@@ -56,7 +62,7 @@ function getFilmRecommendations (req, res, next) {
               // each id from the films that match the query above
               let filmID = filmsArray[i].id;
               // call API for each film
-              request.get(thirdPartyURL + filmID,
+              rp.get(thirdPartyURL + filmID,
                 function (error, response, body) {
                   if (error) throw error;
                   // gets array of reviews out of response array of the specific film
@@ -75,15 +81,13 @@ function getFilmRecommendations (req, res, next) {
                     let average = total / matchedFilm.reviews.length;
                     // if the average is greater than 4.0, push the whole review object to the array
                     if (average > 3.0) {
-                      filmRecommendationArray.push(matchedFilm.film_id);
+                      filmRecommendationObj.recommendations.push(matchedFilm.film_id);
                     }
                   }
                 });
             }
           })
-          .then(res.status(200).send(filmRecommendationArray));
-        // return recommendation array
-        // add meta key, with limit and offset keys (from req.query)
+          .then(res.status(200).send(filmRecommendationObj));
       });
   } catch (err) {
     next(err);
@@ -93,7 +97,9 @@ function getFilmRecommendations (req, res, next) {
 // ROUTES
 app.get('/films', getAllFilms);
 app.get('/films/:id/recommendations', getFilmRecommendations);
-// return 404 error if route DNE
+app.get('*', function (req, res) {
+  res.status(404).send({message: 'invalid route'}).end();
+});
 
 // START SERVER
 Promise.resolve()
