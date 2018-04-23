@@ -21,12 +21,41 @@ function getAllFilms (req, res, next) {
 }
 
 function getFilmRecommendations (req, res, next) {
+  let filmRecommendationObj = {
+    recommendations: [],
+    meta: {
+      limit: 10,
+      offset: 0
+    }
+  };
+
   let filmID = req.params.id;
-  // check if ID is in the DB, if not, return 422 error
+  let limitQuery = req.query.limit;
+  let offsetQuery = req.query.offset;
+
+  if (isNaN(parseInt(filmID)) || filmID === undefined) {
+    res.status(422).send({message: 'Invalid film ID'}).end();
+  }
+
+  if (limitQuery !== undefined) {
+    let limitNum = parseInt(limitQuery);
+    if (isNaN(limitNum)) {
+      res.status(422).send({message: 'Invalid limit query'}).end();
+    } else {
+      filmRecommendationObj.meta.limit = limitNum;
+    }
+  }
+
+  if (offsetQuery !== undefined) {
+    let offsetNum = parseInt(offsetQuery);
+    if (isNaN(offsetNum)) {
+      res.status(422).send({message: 'Invalid offset query'}).end();
+    } else {
+      filmRecommendationObj.meta.offset = offsetNum;
+    }
+  }
 
   try {
-    // let limitNum = req.query.limit;
-    // make sure returned array takes into account the limit and offset
     const thirdPartyURL = 'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1?films=';
     const query =
     `SELECT id
@@ -37,13 +66,6 @@ function getFilmRecommendations (req, res, next) {
     FROM films
     WHERE id = ?`;
 
-    let filmRecommendationObj = {
-      recommendations: [],
-      meta: {
-        limit: 10,
-        offset: 0
-      }
-    };
     sqlite.all(query, filmID)
       .then(function (response) {
         let filmObj = response[0];
@@ -51,7 +73,7 @@ function getFilmRecommendations (req, res, next) {
         let genreID = filmObj.genreID;
         let upperYear = filmObj.upperYear;
         let lowerYear = filmObj.lowerYear;
-        // query for all films that have same genre and were releaseed +-15 yrs of queried film
+        // query for all films that have same genre and were releaseed +/-15 yrs of queried film
         sqlite.all(`SELECT * FROM films WHERE genre_id = ? AND release_date BETWEEN ? AND ?`,
           [genreID, lowerYear, upperYear])
           .then(function (response) {
@@ -80,8 +102,9 @@ function getFilmRecommendations (req, res, next) {
                     // take the newly computed total, and divide by the total number of reviews to get average
                     let average = total / matchedFilm.reviews.length;
                     // if the average is greater than 4.0, push the whole review object to the array
-                    if (average > 3.0) {
+                    if (average > 4.0) {
                       filmRecommendationObj.recommendations.push(matchedFilm.film_id);
+                      console.log(filmRecommendationObj);
                     }
                   }
                 });
