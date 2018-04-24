@@ -4,6 +4,7 @@ const sqlite = require('sqlite');
 const rp = require('request-promise');
 const express = require('express');
 const app = express();
+const thirdPartyURL = 'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1?films=';
 
 const {PORT = 3000, NODE_ENV = 'development', DB_PATH = './db/database.db'} = process.env;
 
@@ -21,7 +22,7 @@ function getAllFilms (req, res, next) {
 }
 
 function getFilmRecommendations (req, res, next) {
-  let filmRecommendationObj = {
+  const filmRecommendationObj = {
     recommendations: [],
     meta: {
       limit: 10,
@@ -56,7 +57,6 @@ function getFilmRecommendations (req, res, next) {
   }
 
   try {
-    const thirdPartyURL = 'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1?films=';
     const query =
     `SELECT id
     ,genre_id AS genreID
@@ -65,14 +65,6 @@ function getFilmRecommendations (req, res, next) {
     ,date(release_date, '-15 years') AS lowerYear
     FROM films
     WHERE id = ?`;
-
-    // db.allDocs({include_docs: true}).then(function (result) {
-    //   return Promise.all(result.rows.map(function (row) {
-    //     return db.remove(row.doc);
-    //   }));
-    // }).then(function (arrayOfResults) {
-    //   // All docs have really been removed() now!
-    // });
 
     sqlite.all(query, filmID)
       .then(function (response) {
@@ -85,46 +77,40 @@ function getFilmRecommendations (req, res, next) {
           [genreID, lowerYear, upperYear])
           .then(function (response) {
             // response is an array of all the films that match the query
-            let filmsArray = response;
-            // return Promise.all(response.
-            for (let i = 0; i < filmsArray.length; i++) {
-              let filmID = filmsArray[i].id;
-              // call API for each film to find all reviews for each film
-              rp.get(thirdPartyURL + filmID,
-                function (error, response, body) {
-                  if (error) throw error;
-                  let matchedFilm = JSON.parse(body)[0];
-                  // total will be used to calculate average rating
-                  let total = 0;
-                  if (matchedFilm.reviews.length >= 5) {
-                    matchedFilm.reviews.forEach(function (review) {
-                      total += review.rating;
-                    });
-                    // take the summed total, and divide by the total number of reviews to get average
-                    let averageRating = total / matchedFilm.reviews.length;
-                    // if the average is greater than 4.0, push ID to an array for querying later
-                    if (averageRating > 4.0) {
-                      let partialObj = {
-                        id: matchedFilm.film_id,
-                        averageRating: averageRating,
-                        reviews: matchedFilm.reviews.length
-                      };
-                      filmRecommendationObj.recommendations.push(partialObj);
-                      // {
-                      //    "id": 109,
-                      //    "title": "Reservoir Dogs",
-                      //    "releaseDate": "09-02-1992",
-                      //    "genre": "Action",
-                      //    "averageRating": 4.2,
-                      //    "reviews": 202
-                      //  }
+            return Promise.all(
+              response.map(function (film) {
+                let filmID = film.id;
+                return rp(thirdPartyURL + filmID)
+                  .then(function (response) {
+                    let matchedFilm = JSON.parse(response)[0];
+                    let total = 0;
+                    if (matchedFilm.reviews.length >= 5) {
+                      matchedFilm.reviews.forEach(function (review) {
+                        total += review.rating;
+                      });
+                      // take the summed total, and divide by the total number of reviews to get average
+                      let averageRating = total / matchedFilm.reviews.length;
+                      // if the average is greater than 4.0, push ID to an array for querying later
+                      if (averageRating > 4.0) {
+                        let averageRatingStr = averageRating.toFixed(1);
+                        let partialObj = {
+                          id: matchedFilm.film_id,
+                          averageRating: parseFloat(averageRatingStr),
+                          reviews: matchedFilm.reviews.length
+                        };
+                        filmRecommendationObj.recommendations.push(partialObj);
+                      }
                     }
-                  }
-                });
-            }
-            return filmRecommendationObj.recommendations;
+                    return filmRecommendationObj;
+                  });
+              }));
           })
-          .then(res.status(200).send(filmRecommendationObj));
+          .then(function (response) {
+            res.status(200).send(response[0]);
+          })
+          .catch(function (err) {
+            console.log(err);
+          });
       });
   } catch (err) {
     next(err);
