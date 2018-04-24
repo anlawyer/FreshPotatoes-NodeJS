@@ -29,6 +29,7 @@ function getFilmRecommendations (req, res, next) {
       offset: 0
     }
   };
+  const recArray = [];
 
   let filmID = req.params.id;
   let limitQuery = req.query.limit;
@@ -106,7 +107,29 @@ function getFilmRecommendations (req, res, next) {
               }));
           })
           .then(function (response) {
-            res.status(200).send(response[0]);
+            const query =
+            `SELECT
+            title as filmTitle
+            ,genres.name AS genreName
+            ,release_date AS releaseDate
+            FROM films
+            JOIN genres ON films.genre_id = genres.id
+            WHERE films.id = ?`;
+            let filmsToRecommend = response[0];
+            console.log(filmsToRecommend);
+            for (let i = 0; i < filmsToRecommend.recommendations.length; i++) {
+              let filmID = filmsToRecommend.recommendations[i].id;
+              let partialFilmObj = filmsToRecommend.recommendations[i];
+              console.log(partialFilmObj);
+              sqlite.all(query, filmID)
+                .then(function (response) {
+                  let finalFilmObj = Object.assign(partialFilmObj, response[0]);
+                  console.log(finalFilmObj);
+                  filmRecommendationObj.recommendations.push(finalFilmObj);
+                  console.log(filmRecommendationObj);
+                });
+              // res.status(200).send(filmRecommendationObj).end();
+            }
           })
           .catch(function (err) {
             console.log(err);
