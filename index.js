@@ -3,6 +3,7 @@ const rp = require('request-promise');
 const express = require('express');
 const app = express();
 const thirdPartyURL = 'http://credentials-api.generalassemb.ly/4576f55f-c427-4cfc-a11c-5bfe914ca6c1?films=';
+// GITHUB REPO: https://github.com/anlawyer/FreshPotatoes-NodeJS
 
 const {PORT = 3000, NODE_ENV = 'development', DB_PATH = './db/database.db'} = process.env;
 
