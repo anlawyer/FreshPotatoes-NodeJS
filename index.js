@@ -1,6 +1,4 @@
 const sqlite = require('sqlite');
-// const Sequelize = require('sequelize');
-// const request = require('request');
 const rp = require('request-promise');
 const express = require('express');
 const app = express();
@@ -9,6 +7,7 @@ const thirdPartyURL = 'http://credentials-api.generalassemb.ly/4576f55f-c427-4cf
 const {PORT = 3000, NODE_ENV = 'development', DB_PATH = './db/database.db'} = process.env;
 
 // ROUTE HANDLER
+// get all films, just for fun
 function getAllFilms (req, res, next) {
   try {
     const query = 'SELECT * FROM films';
@@ -22,6 +21,7 @@ function getAllFilms (req, res, next) {
 }
 
 function getFilmRecommendations (req, res, next) {
+  // object to be returned upon function completion
   const filmRecommendationObj = {
     recommendations: [],
     meta: {
@@ -30,12 +30,12 @@ function getFilmRecommendations (req, res, next) {
     }
   };
 
-  const recArr = [];
-
+  // setting variables from URL
   let filmID = req.params.id;
   let limitQuery = req.query.limit;
   let offsetQuery = req.query.offset;
 
+  // data validation/error handling
   if (isNaN(parseInt(filmID)) || filmID === undefined) {
     res.status(422).send({message: 'Invalid film ID'}).end();
   }
@@ -58,6 +58,9 @@ function getFilmRecommendations (req, res, next) {
     }
   }
 
+  // temporary array for holding review data
+  const reviewArray = [];
+
   try {
     const query =
     `SELECT id
@@ -67,7 +70,7 @@ function getFilmRecommendations (req, res, next) {
     ,date(release_date, '-15 years') AS lowerYear
     FROM films
     WHERE id = ?`;
-
+    // query for desired film data to recommend for
     sqlite.all(query, filmID)
       .then(function (response) {
         let filmObj = response[0];
@@ -78,10 +81,10 @@ function getFilmRecommendations (req, res, next) {
         sqlite.all(`SELECT * FROM films WHERE genre_id = ? AND release_date BETWEEN ? AND ?`,
           [genreID, lowerYear, upperYear])
           .then(function (response) {
-            // response is an array of all the films that match the query
             return Promise.all(
               response.map(function (film) {
                 let filmID = film.id;
+                // call the API for each matched film to get review data
                 return rp(thirdPartyURL + filmID)
                   .then(function (response) {
                     let matchedFilm = JSON.parse(response)[0];
@@ -90,19 +93,19 @@ function getFilmRecommendations (req, res, next) {
                       matchedFilm.reviews.forEach(function (review) {
                         total += review.rating;
                       });
-                      // take the summed total, and divide by the total number of reviews to get average
                       let averageRating = total / matchedFilm.reviews.length;
-                      // if the average is greater than 4.0, push ID to an array for querying later
+                      // if the average is greater than 4.0, push review object data into temp array
                       if (averageRating > 4.0) {
                         let averageRatingStr = averageRating.toFixed(1);
                         let partialObj = {};
                         partialObj['id'] = matchedFilm.film_id;
                         partialObj['averageRating'] = parseFloat(averageRatingStr);
                         partialObj['reviews'] = matchedFilm.reviews.length;
-                        recArr.push(partialObj);
+                        reviewArray.push(partialObj);
                       }
                     }
-                    return recArr;
+                    // return array of partial objects with review data
+                    return reviewArray;
                   });
               }));
           })
@@ -115,18 +118,21 @@ function getFilmRecommendations (req, res, next) {
             FROM films
             JOIN genres ON films.genre_id = genres.id
             WHERE films.id = ?`;
+            // query for the rest of the film data, for the each of the matched films
             return Promise.all(
               response[0].map(function (filmsToRecommend) {
                 let filmID = filmsToRecommend.id;
                 let partialFilmObj = filmsToRecommend;
                 return sqlite.all(query, filmID)
                   .then(function (response) {
+                    // combine film data with review data into one object
                     let finalFilmObj = Object.assign(partialFilmObj, response[0]);
                     filmRecommendationObj.recommendations.push(finalFilmObj);
                     return filmRecommendationObj;
                   });
               }));
           })
+          // send complete response to client
           .then(function (response) {
             res.status(200).send(response[0]).end();
           })
@@ -142,6 +148,7 @@ function getFilmRecommendations (req, res, next) {
 // ROUTES
 app.get('/films', getAllFilms);
 app.get('/films/:id/recommendations', getFilmRecommendations);
+// route error handling
 app.get('*', function (req, res) {
   res.status(404).send({message: 'invalid route'}).end();
 });
