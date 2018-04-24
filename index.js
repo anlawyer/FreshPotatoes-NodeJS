@@ -29,7 +29,8 @@ function getFilmRecommendations (req, res, next) {
       offset: 0
     }
   };
-  const recArray = [];
+
+  const recArr = [];
 
   let filmID = req.params.id;
   let limitQuery = req.query.limit;
@@ -94,42 +95,40 @@ function getFilmRecommendations (req, res, next) {
                       // if the average is greater than 4.0, push ID to an array for querying later
                       if (averageRating > 4.0) {
                         let averageRatingStr = averageRating.toFixed(1);
-                        let partialObj = {
-                          id: matchedFilm.film_id,
-                          averageRating: parseFloat(averageRatingStr),
-                          reviews: matchedFilm.reviews.length
-                        };
-                        filmRecommendationObj.recommendations.push(partialObj);
+                        let partialObj = {};
+                        partialObj['id'] = matchedFilm.film_id;
+                        partialObj['averageRating'] = parseFloat(averageRatingStr);
+                        partialObj['reviews'] = matchedFilm.reviews.length;
+                        recArr.push(partialObj);
                       }
                     }
-                    return filmRecommendationObj;
+                    return recArr;
                   });
               }));
           })
           .then(function (response) {
             const query =
             `SELECT
-            title as filmTitle
-            ,genres.name AS genreName
+            title
+            ,genres.name AS genre
             ,release_date AS releaseDate
             FROM films
             JOIN genres ON films.genre_id = genres.id
             WHERE films.id = ?`;
-            let filmsToRecommend = response[0];
-            console.log(filmsToRecommend);
-            for (let i = 0; i < filmsToRecommend.recommendations.length; i++) {
-              let filmID = filmsToRecommend.recommendations[i].id;
-              let partialFilmObj = filmsToRecommend.recommendations[i];
-              console.log(partialFilmObj);
-              sqlite.all(query, filmID)
-                .then(function (response) {
-                  let finalFilmObj = Object.assign(partialFilmObj, response[0]);
-                  console.log(finalFilmObj);
-                  filmRecommendationObj.recommendations.push(finalFilmObj);
-                  console.log(filmRecommendationObj);
-                });
-              // res.status(200).send(filmRecommendationObj).end();
-            }
+            return Promise.all(
+              response[0].map(function (filmsToRecommend) {
+                let filmID = filmsToRecommend.id;
+                let partialFilmObj = filmsToRecommend;
+                return sqlite.all(query, filmID)
+                  .then(function (response) {
+                    let finalFilmObj = Object.assign(partialFilmObj, response[0]);
+                    filmRecommendationObj.recommendations.push(finalFilmObj);
+                    return filmRecommendationObj;
+                  });
+              }));
+          })
+          .then(function (response) {
+            res.status(200).send(response[0]).end();
           })
           .catch(function (err) {
             console.log(err);
